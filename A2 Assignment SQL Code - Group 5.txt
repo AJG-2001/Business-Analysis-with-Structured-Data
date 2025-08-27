@@ -1,0 +1,221 @@
+-- SECTION 1
+
+	-- 1.1. Product sold the most based 
+WITH T_Orders AS (
+SELECT 
+order_status.order_id,
+order_status.customer_id,
+order_status.order_purchase_timestamp,
+category_translated.product_category_name_english AS `Category`,
+order_payment.payment_value,
+order_items.price,
+order_items.freight_value,
+CASE
+WHEN order_status LIKE 'delivered' OR order_status LIKE 'shipped' THEN 'Complete'
+ELSE 'Incomplete'
+END AS 'Status'
+FROM mban_a2_fall2024.ml_orders_dataset AS order_status
+LEFT JOIN mban_a2_fall2024.ml_order_items_dataset AS order_items
+ON order_status.order_id = order_items.order_id 
+LEFT JOIN mban_a2_fall2024.ml_order_payments_dataset AS order_payment
+ON  order_status.order_id = order_payment.order_id 
+LEFT JOIN mban_a2_fall2024.ml_products_dataset AS products
+ON order_items.product_id = products.product_id
+LEFT JOIN mban_a2_fall2024.ml_product_category_name_translation AS category_translated
+ON products.product_category_name = category_translated.product_category_name)
+ SELECT 
+Category,
+COUNT(*) AS `Frequency`
+FROM T_Orders
+WHERE T_Orders.status = 'Complete'
+GROUP BY category
+ORDER BY `Frequency` DESC;
+
+	-- 1.2. Revenue Analysis
+
+	-- Monthly analysis
+WITH payment AS(
+SELECT 
+order_status.order_purchase_timestamp AS date,
+payment_value,
+CASE
+WHEN order_status LIKE 'delivered' OR order_status LIKE 'shipped' THEN 'Complete'
+ELSE 'Incomplete'
+END AS 'Status' 
+FROM mban_a2_fall2024.ml_order_payments_dataset AS order_payment
+LEFT JOIN mban_a2_fall2024.ml_orders_dataset AS order_status
+ON order_payment.order_id = order_status.order_id
+WHERE order_status.order_purchase_timestamp between '2017-06-1' AND '2018-06-1' )
+SELECT
+YEAR(date) AS `Year`,
+MONTH(date) AS `Month`,
+ROUND(SUM(payment_value)*0.25,2)  AS `Total_revenue(USD)`
+FROM payment
+WHERE status = 'Complete'
+GROUP BY `Year`,`Month`
+ORDER BY `Year`ASC ,`Month` ASC;
+
+		-- Quaterly analysis
+
+WITH payment AS(
+SELECT 
+order_status.order_purchase_timestamp AS date,
+payment_value,
+CASE
+WHEN order_status LIKE 'delivered' OR order_status LIKE 'shipped' THEN 'Complete'
+ELSE 'Incomplete'
+END AS 'Status' 
+FROM mban_a2_fall2024.ml_order_payments_dataset AS order_payment
+LEFT JOIN mban_a2_fall2024.ml_orders_dataset AS order_status
+ON order_payment.order_id = order_status.order_id
+WHERE order_status.order_purchase_timestamp between '2017-06-1' AND '2018-06-1' )
+SELECT
+YEAR(date) AS `Year`,
+QUARTER(date) AS `Quarter`,
+ROUND(SUM(payment_value)*0.25,2)  AS `Total_revenue(USD)`
+FROM payment
+WHERE status = 'Complete'
+GROUP BY `Year`,`Quarter`
+ORDER BY `Year`ASC ,`Quarter` ASC;
+
+
+	-- 1.3 Reach Geolocation
+
+SELECT 
+-- customers.customer_city,
+customers.customer_state,
+COUNT(orders_customer.order_id) AS `Frequency`
+FROM mban_a2_fall2024.ml_orders_dataset AS orders_customer
+LEFT JOIN mban_a2_fall2024.ml_customers_dataset AS customers
+ON orders_customer.customer_id = customers.customer_id
+LEFT JOIN ml_geolocation_dataset AS geoloc
+ON customers.customer_zip_code_prefix = geoloc.geolocation_zip_code_prefix
+GROUP BY customers.customer_state
+ORDER BY Frequency DESC;
+
+
+	-- 1.4 Correlation between furnature and customer rating
+
+SELECT 
+product_category_name_english AS `Category`,
+review_score,
+ROUND((ml_order_items_dataset.price)*0.25,2)  AS `Revenue(USD)`
+FROM mban_a2_fall2024.ml_order_reviews_dataset 
+LEFT JOIN ml_order_items_dataset USING(order_id) 
+LEFT JOIN ml_products_dataset USING(product_id) 
+LEFT JOIN ml_product_category_name_translation USING(product_category_name) 
+WHERE product_category_name_english LIKE '%furniture%';
+
+
+-- SECTION 2
+	-- 2.1 payment types
+SELECT 
+payment_type, 
+Count(*) AS `Frequency` 
+FROM mban_a2_fall2024.ml_order_payments_dataset
+GROUP BY payment_type;
+
+
+	-- 2.2 Delivery speed Trends
+
+WITH T_Orders AS (
+SELECT 
+order_status.order_id,
+order_status.customer_id,
+order_status.order_purchase_timestamp,
+order_status.order_delivered_carrier_date,
+category_translated.product_category_name_english AS `Category`,
+order_payment.payment_value,
+order_items.price,
+order_items.freight_value,
+CASE
+WHEN order_status LIKE 'delivered' OR order_status LIKE 'shipped' THEN 'Complete'
+ELSE 'Incomplete'
+END AS 'Status'
+FROM mban_a2_fall2024.ml_orders_dataset AS order_status
+LEFT JOIN mban_a2_fall2024.ml_order_items_dataset AS order_items
+ON order_status.order_id = order_items.order_id 
+LEFT JOIN mban_a2_fall2024.ml_order_payments_dataset AS order_payment
+ON  order_status.order_id = order_payment.order_id 
+LEFT JOIN mban_a2_fall2024.ml_products_dataset AS products
+ON order_items.product_id = products.product_id
+LEFT JOIN mban_a2_fall2024.ml_product_category_name_translation AS category_translated
+ON products.product_category_name = category_translated.product_category_name)
+SELECT 
+DATEDIFF(order_delivered_carrier_date,order_purchase_timestamp) AS 'Delivery_speed',
+Count(Category) AS `Products`,
+Count(customer_id) AS `Customers`,
+ROUND(SUM(freight_value)*0.25,2)  AS `Total_revenue(USD)`
+FROM T_Orders
+WHERE status = 'Complete'
+	AND  freight_value IS NOT NULL
+GROUP BY Delivery_speed
+ORDER BY Delivery_speed ASC ;
+
+	-- 2.3 Review score
+SELECT COUNT(review_id) AS `Total_reviews`, avg(review_score) AS `Average_review` FROM mban_a2_fall2024.ml_order_reviews_dataset;
+/*shows the amount of orders a review had*/
+SELECT COUNT(order_id) AS `Amount_of_reviews`, review_score FROM mban_a2_fall2024.ml_order_reviews_dataset GROUP BY review_score;
+	-- 2.4 Reviews by city 
+
+SELECT 
+product_category_name_english AS `Category`,
+COUNT(review_score) AS `Frequency`,
+avg(review_score) AS `Average_review`
+FROM mban_a2_fall2024.ml_order_reviews_dataset 
+LEFT JOIN ml_order_items_dataset AS orders_items USING(order_id) 
+LEFT JOIN ml_orders_dataset USING(order_id)
+LEFT JOIN ml_products_dataset USING(product_id) 
+LEFT JOIN ml_product_category_name_translation USING(product_category_name)
+LEFT JOIN mban_a2_fall2024.ml_customers_dataset AS customers USING(customer_id)
+GROUP BY Category
+ORDER BY Average_review DESC;
+
+		-- Reviews category
+
+SELECT 
+customers.customer_state,
+COUNT(review_score) AS `Frequency`,
+avg(review_score) AS `Average_review`
+FROM mban_a2_fall2024.ml_order_reviews_dataset 
+LEFT JOIN ml_order_items_dataset AS orders_items USING(order_id) 
+LEFT JOIN ml_orders_dataset USING(order_id)
+LEFT JOIN ml_products_dataset USING(product_id) 
+LEFT JOIN ml_product_category_name_translation USING(product_category_name)
+LEFT JOIN mban_a2_fall2024.ml_customers_dataset AS customers USING(customer_id)
+GROUP BY customer_state
+ORDER BY Average_review DESC;
+
+-- SECTION 3
+
+	-- 3.1 Marketing channels
+WITH Marketing AS(
+SELECT 
+*,
+CASE
+WHEN origin IS Null THEN 'unknown'
+WHEN origin LIKE '%other%' THEN 'unknown'
+ELSE origin
+END AS marketing_channel
+FROM ml_marketing_qualified_leads_dataset)
+SELECT
+DISTINCT marketing_channel
+FROM Marketing ;
+    
+    -- 3.2 Marketing leads
+WITH Marketing AS(
+SELECT 
+*,
+CASE
+WHEN origin IS Null THEN 'unknown'
+WHEN origin LIKE '%other%' THEN 'unknown'
+ELSE origin
+END AS marketing_channel
+FROM ml_marketing_qualified_leads_dataset)
+SELECT
+marketing_channel,
+COUNT(*) AS `Count`
+FROM Marketing 
+GROUP BY marketing_channel
+ORDER BY `count` DESC;
+
